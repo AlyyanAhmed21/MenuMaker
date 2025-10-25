@@ -1,0 +1,56 @@
+body {
+  background-color: #282c34;
+  color: white;
+  font-family: sans-serif;
+  text-align: center;
+}
+
+.App-header {
+  padding: 20px;
+  border-bottom: 2px solid #61dafb;
+}
+
+.uploader-section {
+  padding: 40px;
+}
+
+input[type="file"] {
+  margin-right: 10px;
+}
+
+button {
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  background-color: #61dafb;
+  border: none;
+  color: #282c34;
+  border-radius: 5px;
+}
+
+button:disabled {
+  background-color: #555;
+  cursor: not-allowed;
+}
+
+.error-message {
+  color: #ff6b6b;
+  margin-top: 15px;
+}
+
+.flipbook-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 20px;
+  padding-bottom: 50px;
+}
+
+.demoPage {
+  background-color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #ccc;
+}

@@ -1,0 +1,77 @@
+.flipbook-viewer-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+/* This is the "Safe Area Box" you requested */
+.safe-area-box {
+    /* Define the margins */
+    margin-top: 20px;
+    margin-bottom: 80px; /* 60px for controls + 20px padding */
+    margin-left: 20px;
+    margin-right: 20px;
+
+    /* Make it fill the available space within the margins */
+    width: 100%;
+    height: 100%;
+    
+    display: flex;
+    justify-content: center; /* Center the book horizontally by default */
+    align-items: center;
+    position: relative; /* Needed for child positioning */
+}
+
+/* The book will stretch to fill the safe area box */
+.menu-book {
+    width: 100%;
+    height: 100%;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* --- The Definitive Cover Centering --- */
+/* When this class is active, force the book to the center */
+.safe-area-box.center-cover .menu-book {
+    width: 50%; /* Make the book container half-width */
+}
+
+.flipbook-page {
+    background-color: white;
+}
+
+.flipbook-page-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain; /* CRUCIAL: Ensures the entire image is visible without cropping */
+}
+
+/* --- Fixed Control Bar --- */
+.fixed-controls {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 60px;
+    background-color: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    z-index: 1000;
+}
+/* ... rest of control styles (button, page-counter) remain the same ... */
+.control-btn {
+    background: none; border: none; color: white;
+    font-size: 2em; cursor: pointer; transition: transform 0.2s, color 0.2s;
+}
+.control-btn:hover {
+    transform: scale(1.2); color: #61dafb;
+}
+.page-counter {
+    color: white; font-size: 1.2em; min-width: 100px; text-align: center;
+    font-variant-numeric: tabular-nums;
+}

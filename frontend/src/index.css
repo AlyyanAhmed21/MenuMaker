@@ -5,7 +5,7 @@
 
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  background-color: transparent;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -28,7 +28,17 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
+
+  /* ✅ Added your new properties */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  background-image: url('/1.jpeg'); /* Path relative to the 'public' folder */
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  overflow: hidden;
 }
+
 
 h1 {
   font-size: 3.2em;

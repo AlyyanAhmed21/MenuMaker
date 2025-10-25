@@ -70,28 +70,47 @@ async function convertPdfToImages(pdfPath, outputDir) {
 
 
 // --- API Endpoint ---
-app.post('/api/upload', upload.single('pdfFile'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).send('No file uploaded.');
+// Change from upload.single to upload.array to accept multiple files
+app.post('/api/upload', upload.array('files'), async (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).send('No files uploaded.');
     }
 
-    const pdfFilePath = req.file.path;
-    const outputDir = path.join(__dirname, 'public', 'output', `${Date.now()}`);
-
     try {
-        console.log(`Converting ${pdfFilePath}...`);
-        
-        const imageUrls = await convertPdfToImages(pdfFilePath, outputDir);
+        let imageUrls = [];
+        const uploadedFiles = req.files;
 
-        console.log('✅ Conversion successful. Image URLs:', imageUrls);
+        // Check if the upload is a single PDF
+        if (uploadedFiles.length === 1 && uploadedFiles[0].mimetype === 'application/pdf') {
+            const pdfFile = uploadedFiles[0];
+            const pdfFilePath = pdfFile.path;
+            const outputDir = path.join(__dirname, 'public', 'output', `${Date.now()}`);
+            
+            console.log(`Converting PDF: ${pdfFilePath}...`);
+            imageUrls = await convertPdfToImages(pdfFilePath, outputDir);
+            await fs.unlink(pdfFilePath); // Clean up the uploaded PDF
 
-        await fs.unlink(pdfFilePath);
+        } else { // Otherwise, treat them as images
+            console.log(`Processing ${uploadedFiles.length} image(s)...`);
+            for (const imageFile of uploadedFiles) {
+                // For images, we just need to move them to the public directory
+                const outputDir = path.join(__dirname, 'public', 'output', 'images');
+                await fs.mkdir(outputDir, { recursive: true });
+                
+                const finalPath = path.join(outputDir, imageFile.filename);
+                await fs.rename(imageFile.path, finalPath); // Move from /uploads to /public
+
+                const relativePath = path.relative(path.join(__dirname, 'public'), finalPath);
+                imageUrls.push(`/public/${relativePath.replace(/\\/g, '/')}`);
+            }
+        }
+
+        console.log('✅ Processing successful. Image URLs:', imageUrls);
         res.json({ imageUrls });
 
     } catch (error) {
-        console.error('Error during PDF conversion:', error);
-        await fs.unlink(pdfFilePath).catch(err => console.error("Failed to cleanup file:", err));
-        res.status(500).send('Failed to process PDF.');
+        console.error('Error during file processing:', error);
+        res.status(500).send('Failed to process files.');
     }
 });
 

@@ -1,85 +1,84 @@
-/* This centers the entire page content */
-#root, .Editor {
-  height: 100vh;
-  width: 100vw;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  background-color: #282c34;
-  color: white;
-  text-align: center;
+.editor-container {
+    /* This creates the stacking context */
+    position: relative; 
+    
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+    color: white;
+    /* The background is now handled by the SVG */
+    background-color: transparent; 
 }
 
-.Editor-header {
-  margin-bottom: 40px;
+/* --- The Glass Box --- */
+.glass-box {
+    /* Position it relative to the container and give it a higher z-index */
+    position: relative;
+    z-index: 2; /* Ensures it's on top of the SVG */
+    
+    background: rgba(40, 40, 40, 0.55);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    padding: 30px 40px;
+    width: 450px;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    text-align: center;
 }
 
-.Editor-header h1 {
-  margin: 0;
-  font-size: 3em;
+.glass-box h1 {
+    font-size: 2.5em;
+    margin: 0;
+    font-weight: 600;
 }
 
-.controls-section {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 25px;
-  padding: 40px;
-  border: 1px solid #444;
-  border-radius: 10px;
-  background-color: #333842;
+.glass-box p {
+    margin: 0 0 10px 0;
+    color: #ccc;
+}
+
+/* --- Styled Controls --- */
+.file-uploader { width: 100%; }
+input[type="file"] { display: none; }
+.custom-file-upload {
+    display: block; width: 100%; padding: 15px 0; cursor: pointer;
+    background-color: rgba(255, 255, 255, 0.1); color: #fff;
+    border: 1px dashed rgba(255, 255, 255, 0.3); border-radius: 10px;
+    font-size: 1em; transition: background-color 0.2s, border-color 0.2s;
+}
+.custom-file-upload:hover {
+    background-color: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.5);
 }
 
 .layout-selector {
-  display: flex;
-  gap: 20px;
-  font-size: 1.1em;
+    display: flex; gap: 10px; background-color: rgba(0, 0, 0, 0.2);
+    padding: 5px; border-radius: 10px; width: 100%;
 }
+.layout-selector input[type="radio"] { display: none; }
 .layout-selector label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  cursor: pointer;
+    flex: 1; padding: 10px; border-radius: 7px; cursor: pointer;
+    transition: background-color 0.3s ease; color: #aaa;
+}
+.layout-selector label.active {
+    background-color: rgba(255, 255, 255, 0.1); color: #fff; font-weight: bold;
 }
 
-input[type="file"] {
-  display: none;
+.glass-box button {
+    width: 100%; padding: 15px 0; font-size: 1.1em; font-weight: bold;
+    cursor: pointer; background: linear-gradient(45deg, #00c6ff, #0072ff);
+    border: none; color: white; border-radius: 10px; transition: transform 0.2s;
 }
-.custom-file-upload {
-  padding: 12px 25px;
-  cursor: pointer;
-  background-color: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  font-size: 1em;
-  font-weight: bold;
-  transition: background-color 0.2s;
-}
-.custom-file-upload:hover {
-  background-color: #45a049;
+.glass-box button:hover { transform: scale(1.02); }
+.glass-box button:disabled {
+    background: #555; cursor: not-allowed; transform: none; opacity: 0.6;
 }
 
-.controls-section button {
-  padding: 12px 25px;
-  font-size: 1em;
-  font-weight: bold;
-  cursor: pointer;
-  background-color: #61dafb;
-  border: none;
-  color: #282c34;
-  border-radius: 5px;
-  transition: background-color 0.2s;
-}
-.controls-section button:disabled {
-  background-color: #555;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.error-message {
-  color: #ff6b6b;
-  margin-top: 15px;
-}
+.error-message { color: #ff6b6b; margin-top: 5px; }

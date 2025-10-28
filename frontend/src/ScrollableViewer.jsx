@@ -1,53 +1,72 @@
-import React, { useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import './ScrollableViewer.css';
 
 const API_URL = 'http://localhost:3001';
 
 function ScrollableViewer({ imageUrls }) {
-    const pageRefs = useRef([]);
-    pageRefs.current = []; // Reset refs on each render
+    const [currentPage, setCurrentPage] = useState(0);
 
-    const addToRefs = (el) => {
-        if (el && !pageRefs.current.includes(el)) {
-            pageRefs.current.push(el);
-        }
-    };
+    const goToNextPage = () => setCurrentPage(c => Math.min(c + 1, imageUrls.length - 1));
+    const goToPrevPage = () => setCurrentPage(c => Math.max(c - 1, 0));
 
-    const scrollToPage = (direction) => {
-        const container = document.querySelector('.scroll-container');
-        if (!container) return;
+    // --- MOUSE WHEEL AND TOUCH SCROLL LOGIC ---
+    const touchStartY = useRef(0);
+    useEffect(() => {
+        const handleWheel = (e) => {
+            if (e.deltaY > 0) goToNextPage();
+            else if (e.deltaY < 0) goToPrevPage();
+        };
+        
+        const handleTouchStart = (e) => {
+            touchStartY.current = e.touches[0].clientY;
+        };
 
-        const currentPageY = container.scrollTop;
-        let targetPage = null;
+        const handleTouchEnd = (e) => {
+            const touchEndY = e.changedTouches[0].clientY;
+            if (touchStartY.current - touchEndY > 50) { // Swiped up
+                goToNextPage();
+            } else if (touchEndY - touchStartY.current > 50) { // Swiped down
+                goToPrevPage();
+            }
+        };
 
-        if (direction === 'next') {
-            // Find the first page that is below the current view
-            targetPage = pageRefs.current.find(page => page.offsetTop > currentPageY);
-        } else { // 'prev'
-            // Find the last page that is above the current view
-            const pagesAbove = pageRefs.current.filter(page => page.offsetTop < currentPageY);
-            targetPage = pagesAbove[pagesAbove.length - 1];
-        }
+        window.addEventListener('wheel', handleWheel);
+        window.addEventListener('touchstart', handleTouchStart);
+        window.addEventListener('touchend', handleTouchEnd);
 
-        if (targetPage) {
-            targetPage.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-    };
+        return () => {
+            window.removeEventListener('wheel', handleWheel);
+            window.removeEventListener('touchstart', handleTouchStart);
+            window.removeEventListener('touchend', handleTouchEnd);
+        };
+    }, []); // Empty dependency array means this runs only once
 
     return (
-        <div className="scroll-viewer-container">
-            <div className="scroll-container">
-                {imageUrls.map((url, index) => (
-                    <div className="scroll-page" key={index} ref={addToRefs}>
-                        <img src={`${API_URL}${url}`} alt={`Page ${index + 1}`} />
-                    </div>
-                ))}
+        <div className="viewer-layout">
+            <div className="top-bar"></div>
+            <div className="safe-area-box single-page-view">
+                {/* Add a transition for a smooth page change effect */}
+                <div className="page-display" style={{ transform: `translateY(-${currentPage * 100}%)` }}>
+                    {imageUrls.map((url, index) => (
+                        <div className="single-page-wrapper" key={index}>
+                            <img src={`${API_URL}${url}`} alt={`Page ${index + 1}`} />
+                        </div>
+                    ))}
+                </div>
             </div>
-            {/* --- Fixed Controls for Scroll View --- */}
-            <div className="fixed-controls">
-                <button onClick={() => scrollToPage('prev')} className="control-btn">↑</button>
-                <div className="page-counter">Scroll</div>
-                <button onClick={() => scrollToPage('next')} className="control-btn">↓</button>
+            <div className="bottom-bar">
+                {/* ... your existing controls ... */}
+                 <div className="controls-center">
+                    <button onClick={goToPrevPage} title="Previous Page" disabled={currentPage === 0}>
+                        <FontAwesomeIcon icon={faArrowLeft} />
+                    </button>
+                    <span className="page-counter">{`${currentPage + 1} / ${imageUrls.length}`}</span>
+                    <button onClick={goToNextPage} title="Next Page" disabled={currentPage === imageUrls.length - 1}>
+                        <FontAwesomeIcon icon={faArrowRight} />
+                    </button>
+                </div>
             </div>
         </div>
     );

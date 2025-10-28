@@ -1,0 +1,14 @@
+.wavy-background-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: block;
+  background-color: #000000;
+  background-image: linear-gradient(to bottom, #0d0d0d, #000000);
+  
+  /* This is the key fix: It should be on a lower layer, but not negative */
+  z-index: 1; 
+}

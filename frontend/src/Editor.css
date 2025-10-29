@@ -11,28 +11,60 @@
     /* The background is now handled by the SVG */
     background-color: transparent; 
 }
+.glass-box::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        145deg,
+        rgba(255, 255, 255, 0.25) 0%,
+        rgba(255, 255, 255, 0.05) 40%,
+        rgba(255, 255, 255, 0) 100%
+    );
+    opacity: 0.6;
+    pointer-events: none;
+    border-radius: inherit;
+}
 
 /* --- The Glass Box --- */
 .glass-box {
-    /* Position it relative to the container and give it a higher z-index */
     position: relative;
-    z-index: 2; /* Ensures it's on top of the SVG */
-    
-    background: rgba(40, 40, 40, 0.55);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    z-index: 2;
+
+    /* More transparent and airy base */
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+
+    /* Soft, round, and dimensional look */
     border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-    padding: 30px 40px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+    padding: 40px 45px;
     width: 450px;
     color: #fff;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 20px;
+    gap: 25px;
     text-align: center;
+
+    /* Subtle glass reflection overlay */
+    overflow: hidden;
 }
+
+.glass-box {
+    box-shadow:
+        0 8px 40px rgba(0, 100, 255, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
 
 .glass-box h1 {
     font-size: 2.5em;

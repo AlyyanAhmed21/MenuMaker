@@ -1,67 +1,107 @@
-.viewer-layout {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    width: 100vw;
-    background-color: #2a2a2a;
-    overflow: hidden;
-}
-.top-bar, .bottom-bar {
-    flex-shrink: 0;
-    background-color: #1c1c1c;
-    width: 100%;
-    z-index: 1000;
-    box-shadow: 0 0 10px rgba(0,0,0,0.5);
-}
-.top-bar { height: 3%; }
-.bottom-bar { height: 8%; }
+/* FlipbookViewer.css - new implementation tuned to match the target look:
+   - cover centered and large
+   - two-page spreads fill the vertical space (top -> slightly above bottom controls)
+   - no forced resets; sizing uses runtime measurements
+*/
 
+.viewer-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background: transparent;
+  overflow: hidden;
+  position: relative;
+}
+
+/* top and bottom bars - these are measured to compute available space */
+.top-bar, .bottom-bar {
+  flex-shrink: 0;
+  background-color: #0f0f0f;
+  width: 100%;
+  z-index: 1000;
+  box-shadow: 0 0 8px rgba(0,0,0,0.45);
+}
+.top-bar { height: 48px; }   /* thin header like your example */
+.bottom-bar { height: 72px; } /* control area */
+
+/* safe area where the book sits */
 .safe-area-box {
-    flex-grow: 1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    overflow: hidden;
-    position: relative;
+  flex-grow: 1;
+  display: flex;
+  justify-content: center; /* center horizontally */
+  align-items: center;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  padding: 0 10px;
 }
-.book-container {
-    transition: transform 0.3s ease;
+
+/* wrapper that centers cover or spread and allows subtle transitions */
+.book-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none; /* let the flipbook itself handle pointer events */
 }
+.book-wrap > .menu-book { pointer-events: auto; }
+
+/* the flipbook itself */
 .menu-book {
-    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 22px 46px rgba(0,0,0,0.5);
+  border-radius: 6px;
+  background: transparent;
+  overflow: visible;
+  transition: width 220ms ease, height 220ms ease;
 }
-.book-container.is-cover .react-pageflip-wrapper {
-    transform: translateX(50%);
+
+/* ensure internal canvas doesn't clip page-turn effect */
+.menu-book .react-pageflip {
+  overflow: visible !important;
 }
-.book-container .menu-book {
-    min-width: 80vw !important; /* Force the book to be at least 80% of the viewport width */
-    min-height: 80vh !important;
-}
+
+/* page element */
 .page {
-    background-color: white;
-    border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.page img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
+
+/* keep image readable: occupy full page height and preserve aspect ratio */
+.page-image {
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+  display: block;
+  user-select: none;
+  pointer-events: none;
 }
+
+/* bottom controls */
 .bottom-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0 20px;
-    color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 22px;
+  color: white;
 }
-.controls-left, .controls-right { flex: 1; display: flex; }
+.controls-left, .controls-right { flex: 1; display: flex; align-items: center; gap: 12px; }
 .controls-right { justify-content: flex-end; }
-.controls-center { flex: 2; display: flex; justify-content: center; align-items: center; gap: 20px; }
-.bottom-bar button {
-    background: none; border: none; color: #ccc;
-    font-size: 1.5em; cursor: pointer; padding: 10px;
-    transition: color 0.2s, transform 0.2s;
+.controls-center { flex: 2; display: flex; justify-content: center; align-items: center; gap: 16px; }
+.bottom-bar button { background: none; border: none; color: #ccc; font-size: 1.2em; cursor: pointer; padding: 8px; transition: color 0.15s, transform 0.15s; }
+.bottom-bar button:hover { color: white; transform: scale(1.05); }
+.page-counter { font-size: 1.05em; font-weight: 600; min-width: 80px; text-align: center; background: rgba(255,255,255,0.04); padding: 6px 10px; border-radius: 6px; }
+
+/* responsive tweaks */
+@media (max-width: 1100px) {
+  .top-bar { height: 40px; }
+  .bottom-bar { height: 64px; }
 }
-.bottom-bar button:hover { color: white; transform: scale(1.1); }
-.page-counter {
-    font-size: 1.2em; font-weight: bold; min-width: 100px; text-align: center;
+@media (max-width: 700px) {
+  .page-image { height: 88%; }
+  .page-counter { min-width: 60px; font-size: 0.95em; }
 }

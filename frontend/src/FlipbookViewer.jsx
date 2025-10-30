@@ -4,20 +4,20 @@ import './FlipbookViewer.css';
 
 const API_URL = 'http://localhost:3001';
 
-// Sequential loader helper used earlier (unchanged logic expected in your app).
-function loadScript(src, globalCheck = () => false) {
+// small sequential loader to ensure jQuery is present before turn.js loads
+function loadScript(src, check = () => false) {
   return new Promise((resolve, reject) => {
     try {
-      if (globalCheck()) return resolve();
+      if (check()) return resolve();
       const existing = document.querySelector(`script[src="${src}"]`);
       if (existing) {
         existing.addEventListener('load', () => resolve());
-        existing.addEventListener('error', () => reject(new Error('Failed to load script')));
+        existing.addEventListener('error', () => reject(new Error('Failed to load ' + src)));
         return;
       }
       const s = document.createElement('script');
       s.src = src;
-      s.async = false; // important: keep execution order
+      s.async = false;
       s.onload = () => resolve();
       s.onerror = () => reject(new Error('Failed to load ' + src));
       document.head.appendChild(s);
@@ -27,289 +27,322 @@ function loadScript(src, globalCheck = () => false) {
   });
 }
 
-function FlipbookViewer({ menuData }) {
+/*
+  Updated FlipbookViewer:
+
+  - Uses an injection approach (we set flipbookRef.current.innerHTML) so turn.js
+    can own the page DOM nodes without React/turn DOM conflicts (prevents HierarchyRequestError).
+  - Waits for images to load before initializing turn.js, ensuring turn has the correct page sizes.
+  - Ensures an even number of pages for display:'double' by adding a blank page at the end if needed.
+  - Computes adaptive two-page book width from the natural image sizes (fits to available height),
+    scales down if necessary, and calls turn('size', bookWidth, bookHeight) so pages meet at the spine.
+  - Guards every external call and logs errors instead of throwing.
+*/
+
+export default function FlipbookViewer({ menuData }) {
   const flipbookRef = useRef(null);
   const safeAreaRef = useRef(null);
-  const ptrState = useRef({ active: false, startX: 0, startY: 0, moved: false, flipped: false, corner: null });
   const [turnInstance, setTurnInstance] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = (menuData && menuData.imageUrls) ? menuData.imageUrls.length : 0;
 
-  // sizing (same logic as before)
-  const setBookSize = useCallback(() => {
-    if (!flipbookRef.current || !safeAreaRef.current || !turnInstance) return;
+  const totalPages = (menuData && Array.isArray(menuData.imageUrls)) ? menuData.imageUrls.length : 0;
+  const TURN_DURATION_MS = 1100;
 
-    const safe = safeAreaRef.current;
-    const containerWidth = safe.clientWidth - 40;
-    const containerHeight = safe.clientHeight - 40;
+  // Build static page markup and inject into the container (turn.js will own these DOM nodes)
+  const injectPages = useCallback((urls) => {
+    if (!flipbookRef.current) return;
+    const nodes = (urls || []).map((u, i) => {
+      const src = `${API_URL}${u}`;
+      // Use background-image style or an <img> child; background keeps markup light.
+      return `<div class="page" data-page="${i + 1}"><img class="page-image" src="${src}" draggable="false" /></div>`;
+    });
 
-    const pageAspectRatio = 8.5 / 11;
-    let pageHeight = Math.min(containerHeight, 920);
-    let pageWidth = pageHeight * pageAspectRatio;
-    let bookWidth = pageWidth * 2;
-    let bookHeight = pageHeight;
+    // Ensure even count for display:'double' (keep first content on the right by appending a blank page)
+    if (nodes.length % 2 === 1) {
+      // append blank page at the end
+      nodes.push('<div class="page blank-page" data-page="blank"></div>');
+    }
 
-    if (bookWidth > containerWidth) {
-      bookWidth = containerWidth;
-      pageWidth = bookWidth / 2;
-      pageHeight = pageWidth / pageAspectRatio;
+    // Replace container's children atomically
+    flipbookRef.current.innerHTML = nodes.join('');
+  }, []);
+
+  // Wait for images inside the container to load (with timeout)
+  const waitForImagesInContainer = useCallback((timeoutMs = 5000) => {
+    const container = flipbookRef.current;
+    if (!container) return Promise.resolve();
+    const imgs = Array.from(container.querySelectorAll('img.page-image'));
+    const promises = imgs.map((img) => {
+      if (img.complete && img.naturalWidth) return Promise.resolve();
+      return new Promise((res) => {
+        const onLoad = () => { cleanup(); res(); };
+        const onErr = () => { cleanup(); res(); };
+        const to = setTimeout(() => { cleanup(); res(); }, timeoutMs);
+        function cleanup() {
+          clearTimeout(to);
+          img.removeEventListener('load', onLoad);
+          img.removeEventListener('error', onErr);
+        }
+        img.addEventListener('load', onLoad);
+        img.addEventListener('error', onErr);
+      });
+    });
+    return Promise.all(promises);
+  }, []);
+
+  // Compute adaptive book size based on natural image sizes
+  const computeAdaptiveSize = useCallback(() => {
+    const container = safeAreaRef.current;
+    const el = flipbookRef.current;
+    if (!container || !el) return null;
+
+    const containerWidth = Math.max(320, container.clientWidth - 40);
+    const containerHeight = Math.max(320, container.clientHeight - 40);
+
+    const imgs = Array.from(el.querySelectorAll('img.page-image'));
+    // Determine the two pages currently visible (left/right) according to data-page or order.
+    // When initializing, just consider the first two non-blank images.
+    let leftImg = imgs[0] || null;
+    let rightImg = imgs[1] || null;
+    // Fallbacks
+    const aspect = (img) => {
+      if (!img) return 8.5 / 11;
+      const w = img.naturalWidth || img.width || null;
+      const h = img.naturalHeight || img.height || null;
+      if (w && h && Number.isFinite(w) && Number.isFinite(h) && h > 0) return w / h;
+      return 8.5 / 11;
+    };
+
+    const leftAspect = aspect(leftImg);
+    const rightAspect = aspect(rightImg);
+
+    const pageMaxHeight = containerHeight;
+    let leftW = pageMaxHeight * leftAspect;
+    let rightW = pageMaxHeight * rightAspect;
+
+    // If one side missing, mirror the other so the single page sits correctly
+    if (!leftImg && rightImg) leftW = rightW;
+    if (!rightImg && leftImg) rightW = leftW;
+
+    let bookWidth = leftW + rightW;
+    let bookHeight = pageMaxHeight;
+
+    // Scale down proportionally when wider than container
+    if (!Number.isFinite(bookWidth) || bookWidth <= 0) {
+      const defaultAspect = 8.5 / 11;
+      const pageHeight = Math.min(containerHeight, 920);
+      const pageWidth = pageHeight * defaultAspect;
+      bookWidth = pageWidth * 2;
       bookHeight = pageHeight;
     }
 
-    try { turnInstance.turn('size', Math.round(bookWidth), Math.round(bookHeight)); } catch (e) {}
-    const el = flipbookRef.current;
-    el.style.width = `${Math.round(bookWidth)}px`;
-    el.style.height = `${Math.round(bookHeight)}px`;
-  }, [turnInstance]);
+    if (bookWidth > containerWidth) {
+      const scale = containerWidth / bookWidth;
+      bookWidth = Math.round(bookWidth * scale);
+      bookHeight = Math.round(bookHeight * scale);
+    } else {
+      bookWidth = Math.round(bookWidth);
+      bookHeight = Math.round(bookHeight);
+    }
 
-  // Initialize jQuery and turn.js sequentially, then init the book
+    return { bookWidth, bookHeight };
+  }, []);
+
+  // Initialize turn.js after injecting pages and ensuring images loaded
   useEffect(() => {
     let mounted = true;
+    let $book = null;
+
     async function init() {
+      if (!menuData || !Array.isArray(menuData.imageUrls) || menuData.imageUrls.length === 0) {
+        // Nothing to show
+        return;
+      }
+
+      // 1) Inject pages into the container (plain DOM children — avoids React/turn conflicts)
+      injectPages(menuData.imageUrls);
+
+      // 2) Wait for those page images to load so we can measure natural sizes
+      try {
+        await waitForImagesInContainer(4000);
+      } catch (_) { /* timeout — proceed anyway */ }
+
+      // 3) Compute an adaptive size and apply as initial wrapper size so turn doesn't create large gaps
+      const size = computeAdaptiveSize();
+      try {
+        if (size && flipbookRef.current) {
+          flipbookRef.current.style.width = `${size.bookWidth}px`;
+          flipbookRef.current.style.height = `${size.bookHeight}px`;
+        }
+      } catch (err) { /* ignore */ }
+
+      // 4) Load jQuery and turn.js sequentially
       try {
         await loadScript('https://code.jquery.com/jquery-3.6.0.min.js', () => !!window.jQuery);
         await loadScript('/turn.min.js', () => !!(window.jQuery && window.jQuery.fn && window.jQuery.fn.turn));
-        await new Promise(r => setTimeout(r, 30));
+        // allow plugin to attach
+        await new Promise(r => setTimeout(r, 20));
       } catch (err) {
-        console.warn('Could not load scripts (jQuery/turn.js). Flipbook will try to run with limited interaction.', err);
+        console.warn('Script load failed:', err);
       }
 
       if (!mounted) return;
       const $ = window.jQuery;
-      if (!flipbookRef.current || !($ && $.fn && $.fn.turn)) {
-        // plugin not available: we'll still render static pages and our swipe handlers will work
+      if (!$ || !$.fn || !$.fn.turn || !flipbookRef.current) {
+        // plugin not present, leave static pages
         return;
       }
 
-      const $book = $(flipbookRef.current);
-
       try {
-        if ($book.turn('is')) $book.turn('destroy');
-      } catch (e) {}
+        $book = $(flipbookRef.current);
 
-      $book.turn({
-        width: 1,
-        height: 1,
-        display: 'double',
-        autoCenter: true,
-        acceleration: true,
-        gradients: !$.isTouch,
-        elevation: 50,
-        duration: 700,
-        when: {
-          turned: function (e, page) {
-            setCurrentPage(page);
+        // Destroy previous instance safely
+        try { if ($book.turn('is')) $book.turn('destroy'); } catch (_) {}
+
+        // Initialize with the computed size (avoid calling turn('addPage') etc. — we let it use the children)
+        const opts = {
+          width: (size && size.bookWidth) || 1,
+          height: (size && size.bookHeight) || 1,
+          display: 'double',
+          acceleration: true,
+          gradients: !$.isTouch,
+          elevation: 50,
+          duration: TURN_DURATION_MS,
+          autoCenter: true,
+          when: {
+            turned: function (e, page) {
+              try {
+                if (Number.isFinite(page)) setCurrentPage(page);
+              } catch (err) { /* ignore */ }
+              // recompute sizes after turn completes (small delay)
+              setTimeout(() => {
+                try {
+                  const s2 = computeAdaptiveSize();
+                  if (s2 && $book && $book.turn) $book.turn('size', s2.bookWidth, s2.bookHeight);
+                } catch (_) { /* ignore */ }
+              }, 40);
+            },
+            missing: function (e, pages) {
+              console.info('turn.js requested missing pages', pages);
+            }
           }
-        }
-      });
+        };
 
-      setTurnInstance($book);
+        // Initialize turn with the prepared children
+        $book.turn(opts);
+
+        // Apply final size again to be safe
+        if (size) {
+          try { $book.turn('size', size.bookWidth, size.bookHeight); } catch (_) {}
+        }
+
+        setTurnInstance($book);
+      } catch (err) {
+        console.error('turn.js initialization failed:', err);
+      }
     }
 
     init();
-    return () => { mounted = false; };
+
+    return () => {
+      mounted = false;
+      try {
+        if (turnInstance && turnInstance.turn && turnInstance.turn('is')) turnInstance.turn('destroy');
+      } catch (_) {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuData]);
 
-  // Resize observer + window resize
+  // Resize handler: recompute adaptively when the window / container changes
   useEffect(() => {
-    if (!turnInstance) return;
-    setBookSize();
-    const safeEl = safeAreaRef.current;
-    let ro;
-    if (safeEl && typeof ResizeObserver !== 'undefined') {
-      ro = new ResizeObserver(setBookSize);
-      ro.observe(safeEl);
-    }
-    window.addEventListener('resize', setBookSize);
-    return () => {
-      window.removeEventListener('resize', setBookSize);
-      if (ro && safeEl) ro.unobserve(safeEl);
-    };
-  }, [turnInstance, setBookSize]);
-
-  // cleanup
-  useEffect(() => {
-    return () => {
-      if (turnInstance && turnInstance.turn && turnInstance.turn('is')) {
-        try { turnInstance.turn('destroy'); } catch (e) {}
+    const onResize = () => {
+      const s = computeAdaptiveSize();
+      if (s && flipbookRef.current) {
+        try {
+          flipbookRef.current.style.width = `${s.bookWidth}px`;
+          flipbookRef.current.style.height = `${s.bookHeight}px`;
+          if (turnInstance && turnInstance.turn) turnInstance.turn('size', s.bookWidth, s.bookHeight);
+        } catch (_) {}
       }
     };
-  }, [turnInstance]);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [turnInstance, computeAdaptiveSize]);
 
-  // navigation
-  const goNext = () => { if (turnInstance && turnInstance.turn) turnInstance.turn('next'); else { /* fallback */ } };
-  const goPrev = () => { if (turnInstance && turnInstance.turn) turnInstance.turn('previous'); else { /* fallback */ } };
-  const goFirst = () => { if (turnInstance && turnInstance.turn) turnInstance.turn('page', 1); };
-  const goLast = () => { if (turnInstance && turnInstance.turn) turnInstance.turn('page', totalPages); };
-  const jumpTo = (value) => {
-    const p = Number(value);
-    if (!isNaN(p) && p >= 1 && p <= totalPages && turnInstance && turnInstance.turn) {
-      turnInstance.turn('page', p);
-    }
-  };
-
-  // keyboard nav
+  // Keyboard nav
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'ArrowLeft') goPrev();
-      if (e.key === 'ArrowRight') goNext();
-      if (e.key === 'Home') goFirst();
-      if (e.key === 'End') goLast();
+      if (e.key === 'ArrowLeft') {
+        try { if (turnInstance && turnInstance.turn) turnInstance.turn('previous'); } catch (_) {}
+      } else if (e.key === 'ArrowRight') {
+        try { if (turnInstance && turnInstance.turn) turnInstance.turn('next'); } catch (_) {}
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [turnInstance]);
 
-  // Pointer (touch + mouse) handlers for swipe / corner-drag flipping
+  // Pointer tap/swipe simple handlers (leave dragging/peel to turn.js)
   useEffect(() => {
     const el = flipbookRef.current;
     if (!el) return;
-
-    const state = ptrState.current;
-    const THRESHOLD = 40; // px to count as swipe
-    const CORNER_AREA = 0.18; // fractional width from edges considered "corner"
-
-    function onPointerDown(e) {
-      // Only left/mouse and touch/pen supported
-      state.active = true;
-      state.moved = false;
-      state.flipped = false;
-      state.startX = e.clientX;
-      state.startY = e.clientY;
-      state.startTime = Date.now();
-
-      // compute corner: left or right or null
-      const rect = el.getBoundingClientRect();
-      const relX = (e.clientX - rect.left) / rect.width;
-      if (relX < CORNER_AREA) state.corner = 'left';
-      else if (relX > 1 - CORNER_AREA) state.corner = 'right';
-      else state.corner = null;
-
-      try { (e.target || el).setPointerCapture && (e.target || el).setPointerCapture(e.pointerId); } catch (err) {}
-    }
-
-    function onPointerMove(e) {
-      if (!state.active) return;
-      const dx = e.clientX - state.startX;
-      const dy = e.clientY - state.startY;
-      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) state.moved = true;
-
-      // If user started in a corner and moves far enough horizontally, trigger flip
-      if (!state.flipped && state.corner) {
-        if (state.corner === 'right' && dx < -THRESHOLD) { goNext(); state.flipped = true; }
-        if (state.corner === 'left' && dx > THRESHOLD) { goPrev(); state.flipped = true; }
+    const s = { active: false, sx: 0, sy: 0, moved: false };
+    const SWIPE = 50;
+    function down(e) { s.active = true; s.sx = e.clientX; s.sy = e.clientY; s.moved = false; try { (e.target || el).setPointerCapture && (e.target || el).setPointerCapture(e.pointerId); } catch(_) {} }
+    function move(e) { if (!s.active) return; if (Math.abs(e.clientX - s.sx) > 8 || Math.abs(e.clientY - s.sy) > 8) s.moved = true; }
+    function up(e) {
+      if (!s.active) return;
+      const dx = e.clientX - s.sx; const adx = Math.abs(dx); const dy = Math.abs(e.clientY - s.sy);
+      if (adx > Math.max(SWIPE, dy)) {
+        if (dx < 0) try { if (turnInstance && turnInstance.turn) turnInstance.turn('next'); } catch(_) {}
+        else try { if (turnInstance && turnInstance.turn) turnInstance.turn('previous'); } catch(_) {}
+      } else if (!s.moved) {
+        const rect = el.getBoundingClientRect(); const relX = (e.clientX - rect.left) / rect.width;
+        if (relX < 0.5) try { if (turnInstance && turnInstance.turn) turnInstance.turn('previous'); } catch(_) {}
+        else try { if (turnInstance && turnInstance.turn) turnInstance.turn('next'); } catch(_) {}
       }
+      s.active = false; s.moved = false; try { (e.target || el).releasePointerCapture && (e.target || el).releasePointerCapture(e.pointerId); } catch(_) {}
     }
-
-    function onPointerUp(e) {
-      if (!state.active) return;
-      const dx = e.clientX - state.startX;
-      const dt = Date.now() - state.startTime;
-
-      // Quick swipe detection (even if not in corner)
-      if (!state.flipped && Math.abs(dx) > THRESHOLD && Math.abs(dx) > Math.abs(e.clientY - state.startY)) {
-        if (dx < 0) goNext(); else goPrev();
-        state.flipped = true;
-      }
-
-      // If not moved much (a tap) and near edge — interpret as page peel attempt: small move triggers
-      if (!state.flipped && !state.moved && state.corner) {
-        // treat tap on right edge as goNext, left as goPrev
-        if (state.corner === 'right') goNext();
-        else if (state.corner === 'left') goPrev();
-      }
-
-      state.active = false;
-      state.corner = null;
-      state.moved = false;
-      state.flipped = false;
-      try { (e.target || el).releasePointerCapture && (e.target || el).releasePointerCapture(e.pointerId); } catch (err) {}
-    }
-
-    el.addEventListener('pointerdown', onPointerDown, { passive: true });
-    window.addEventListener('pointermove', onPointerMove, { passive: true });
-    window.addEventListener('pointerup', onPointerUp, { passive: true });
-    window.addEventListener('pointercancel', onPointerUp, { passive: true });
-
+    el.addEventListener('pointerdown', down, { passive: true });
+    window.addEventListener('pointermove', move, { passive: true });
+    window.addEventListener('pointerup', up, { passive: true });
+    window.addEventListener('pointercancel', up, { passive: true });
     return () => {
-      el.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('pointercancel', onPointerUp);
+      el.removeEventListener('pointerdown', down);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
     };
   }, [turnInstance]);
 
-  if (!menuData || !menuData.imageUrls || menuData.imageUrls.length === 0) {
-    return (
-      <div className="viewer-layout">
-        <WavyBackground />
-        <div className="top-bar" />
-        <div className="safe-area-box">
-          <div className="empty-message">No pages to display.</div>
-        </div>
-        <div className="bottom-bar" />
-      </div>
-    );
-  }
-
-  // page counter text (same logic)
-  let displayPageText = '';
+  // Page counter display
+  let displayText = '';
   try {
     if (turnInstance && turnInstance.turn) {
-      const view = turnInstance.turn('view');
-      if (Array.isArray(view) && view.length === 2) displayPageText = `${view[0]} - ${view[1]} / ${totalPages}`;
-      else if (Array.isArray(view) && view.length === 1) displayPageText = `${view[0]} / ${totalPages}`;
+      const v = turnInstance.turn('view');
+      if (Array.isArray(v) && v.length === 2) displayText = `${v[0]} - ${v[1]} / ${totalPages}`;
+      else if (Array.isArray(v) && v.length === 1) displayText = `${v[0]} / ${totalPages}`;
     }
-  } catch (e) {}
-  if (!displayPageText) {
-    if (currentPage <= 1) displayPageText = `1 / ${totalPages}`;
-    else if (currentPage >= totalPages) displayPageText = `${totalPages} / ${totalPages}`;
-    else displayPageText = `${currentPage} - ${Math.min(currentPage + 1, totalPages)} / ${totalPages}`;
-  }
+  } catch (_) { }
+  if (!displayText) displayText = `${Math.max(1, currentPage)} / ${totalPages}`;
 
   return (
     <div className="viewer-layout">
       <WavyBackground />
-      <div className="top-bar">
-        <div className="controls-center top-controls">
-          <button className="ctrl" title="First" onClick={goFirst}>⏮</button>
-          <button className="ctrl" title="Prev" onClick={goPrev}>◀</button>
-
-          <div className="page-counter">
-            <span className="page-text">{displayPageText}</span>
-            <input
-              className="page-jump"
-              type="number"
-              min="1"
-              max={totalPages}
-              placeholder="Go to"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') jumpTo(e.target.value);
-              }}
-            />
-          </div>
-
-          <button className="ctrl" title="Next" onClick={goNext}>▶</button>
-          <button className="ctrl" title="Last" onClick={goLast}>⏭</button>
-        </div>
-      </div>
-
+      <div className="top-bar" />
       <div className="safe-area-box" ref={safeAreaRef}>
-        <div ref={flipbookRef} className="menu-book" aria-hidden={false}>
-          {menuData.imageUrls.map((url, idx) => (
-            <div key={idx} className="page" data-page={idx + 1}>
-              <img src={`${API_URL}${url}`} alt={`page-${idx + 1}`} className="page-image" draggable="false" />
-            </div>
-          ))}
-        </div>
-
-        <button className="nav-arrow left" onClick={goPrev} aria-label="Previous" />
-        <button className="nav-arrow right" onClick={goNext} aria-label="Next" />
+        <div ref={flipbookRef} className="menu-book" />
       </div>
 
-      <div className="bottom-bar" /> {/* kept for spacing */}
+      <div className="overlay-controls">
+        <div className="controls-center top-controls">
+          <button className="ctrl" onClick={() => { try { if (turnInstance && turnInstance.turn) turnInstance.turn('page', 1); } catch (_) {} }}>⏮</button>
+          <button className="ctrl" onClick={() => { try { if (turnInstance && turnInstance.turn) turnInstance.turn('previous'); } catch (_) {} }}>◀</button>
+          <div className="page-counter"><span>{displayText}</span></div>
+          <button className="ctrl" onClick={() => { try { if (turnInstance && turnInstance.turn) turnInstance.turn('next'); } catch (_) {} }}>▶</button>
+          <button className="ctrl" onClick={() => { try { if (turnInstance && turnInstance.turn) turnInstance.turn('page', totalPages); } catch (_) {} }}>⏭</button>
+        </div>
+      </div>
     </div>
   );
 }
-
-export default FlipbookViewer;

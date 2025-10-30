@@ -1,7 +1,7 @@
 :root{
   /* tune these to match your actual top header and bottom control heights */
-  --top-bar-height: 48px;    /* actual thin black top bar height */
-  --bottom-bar-height: 60px; /* bottom controls height */
+  --top-bar-height: 40px;    /* actual thin black top bar height */
+  --bottom-bar-height: 50px; /* bottom controls height */
   --viewer-gap: 8px;         /* small breathing gap */
 }
 

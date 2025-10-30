@@ -33,29 +33,63 @@
 
 /* Make the book container fully transparent and remove any border/shadow */
 .menu-book {
-    z-index: 10;
-    position: relative;
-    background: transparent !important;
-    box-shadow: none !important;
-    border: none !important;
-    outline: none !important;
-    transform-origin: center center;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: none;
-    overflow: visible;
+  z-index: 10;
+  position: relative;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none !important;
+  transform-style: preserve-3d;  /* helps 3D feel */
 }
 
 /* Ensure turn.js wrappers do not add gutters, borders or shadows */
-.menu-book .turn-page,
-.menu-book .page {
-    margin: 0 !important;
-    padding: 0 !important;
-    box-shadow: none !important;
-    background: transparent !important;
-    border: none !important;
-    outline: none !important;
+.menu-book {
+  z-index: 10;
+  position: relative;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none !important;
+  transform-style: preserve-3d;  /* helps 3D feel */
 }
+
+/* Default subtle shadow for resting pages */
+.menu-book .page {
+  box-shadow: 0 4px 18px rgba(0,0,0,0.16);
+  transition: box-shadow 420ms cubic-bezier(0.4, 0, 0.2, 1),
+              filter 420ms ease;
+  will-change: box-shadow, filter;
+  transform-style: preserve-3d;
+}
+
+/* During turning: gently deepen shadow and add slight brightness contrast */
+.menu-book.is-turning .page {
+  box-shadow: 0 12px 48px rgba(0,0,0,0.35);
+  filter: brightness(0.96) contrast(1.02);
+}
+
+/* Optional: inner gradient edge to enhance 3D feel while preserving smoothness */
+.menu-book .page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    rgba(0,0,0,0.06) 0%,
+    rgba(0,0,0,0.00) 20%,
+    rgba(0,0,0,0.00) 80%,
+    rgba(0,0,0,0.06) 100%
+  );
+  mix-blend-mode: multiply;
+  opacity: 0.7;
+  transition: opacity 420ms ease;
+}
+
+.menu-book.is-turning .page::after {
+  opacity: 0.9;
+}
+
 
 /* Page content - transparent background (images remain visible) */
 .page {
@@ -102,15 +136,15 @@
 .nav-arrow.right { right: calc(50% - 560px); }
 .nav-arrow:hover { opacity: 1; transform: translateY(-50%) scale(1.05); }
 
-/* Top controls styling (unchanged) */
 .controls-center.top-controls {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background: rgba(12,12,12,0.6);
-    padding: 6px 12px;
-    border-radius: 6px;
-    backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(12,12,12,0.6);
+  padding: 6px 12px;
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+  z-index: 100;
 }
 
 .ctrl {
@@ -144,6 +178,13 @@
     padding: 6px;
     border-radius: 4px;
 }
+/* ... keep the rest of your existing styles ... */
+
+/* Ensure the book wrapper is transparent (you already had these) */
+
+
+/* Controls (keep as previously) */
+
 
 /* responsive */
 @media (max-width: 900px) {

@@ -28,15 +28,12 @@ function loadScript(src, check = () => false) {
 }
 
 /*
-  Updated FlipbookViewer:
-
-  - Uses an injection approach (we set flipbookRef.current.innerHTML) so turn.js
-    can own the page DOM nodes without React/turn DOM conflicts (prevents HierarchyRequestError).
-  - Waits for images to load before initializing turn.js, ensuring turn has the correct page sizes.
-  - Ensures an even number of pages for display:'double' by adding a blank page at the end if needed.
-  - Computes adaptive two-page book width from the natural image sizes (fits to available height),
-    scales down if necessary, and calls turn('size', bookWidth, bookHeight) so pages meet at the spine.
-  - Guards every external call and logs errors instead of throwing.
+  Changes in this file vs the previous working baseline:
+  - Moved the overlay controls into the top bar so they are visible again.
+  - Added subtle page shadows by default and a stronger shadow while a page turn is in progress.
+  - Implemented a safe "doTurn" wrapper that toggles an "is-turning" CSS class on the book container
+    around manual navigation calls so we can enhance the 3D/shadow effect during animations.
+  - Also register turn.js 'turning' and 'turned' callbacks to add/remove the same class for plugin-driven flips.
 */
 
 export default function FlipbookViewer({ menuData }) {
@@ -46,24 +43,21 @@ export default function FlipbookViewer({ menuData }) {
   const [currentPage, setCurrentPage] = useState(1);
 
   const totalPages = (menuData && Array.isArray(menuData.imageUrls)) ? menuData.imageUrls.length : 0;
-  const TURN_DURATION_MS = 1100;
+  const TURN_DURATION_MS = 2000;
 
   // Build static page markup and inject into the container (turn.js will own these DOM nodes)
   const injectPages = useCallback((urls) => {
     if (!flipbookRef.current) return;
     const nodes = (urls || []).map((u, i) => {
       const src = `${API_URL}${u}`;
-      // Use background-image style or an <img> child; background keeps markup light.
       return `<div class="page" data-page="${i + 1}"><img class="page-image" src="${src}" draggable="false" /></div>`;
     });
 
-    // Ensure even count for display:'double' (keep first content on the right by appending a blank page)
+    // Ensure even count for display:'double' (append blank page if odd)
     if (nodes.length % 2 === 1) {
-      // append blank page at the end
       nodes.push('<div class="page blank-page" data-page="blank"></div>');
     }
 
-    // Replace container's children atomically
     flipbookRef.current.innerHTML = nodes.join('');
   }, []);
 
@@ -100,11 +94,9 @@ export default function FlipbookViewer({ menuData }) {
     const containerHeight = Math.max(320, container.clientHeight - 40);
 
     const imgs = Array.from(el.querySelectorAll('img.page-image'));
-    // Determine the two pages currently visible (left/right) according to data-page or order.
-    // When initializing, just consider the first two non-blank images.
     let leftImg = imgs[0] || null;
     let rightImg = imgs[1] || null;
-    // Fallbacks
+
     const aspect = (img) => {
       if (!img) return 8.5 / 11;
       const w = img.naturalWidth || img.width || null;
@@ -120,14 +112,12 @@ export default function FlipbookViewer({ menuData }) {
     let leftW = pageMaxHeight * leftAspect;
     let rightW = pageMaxHeight * rightAspect;
 
-    // If one side missing, mirror the other so the single page sits correctly
     if (!leftImg && rightImg) leftW = rightW;
     if (!rightImg && leftImg) rightW = leftW;
 
     let bookWidth = leftW + rightW;
     let bookHeight = pageMaxHeight;
 
-    // Scale down proportionally when wider than container
     if (!Number.isFinite(bookWidth) || bookWidth <= 0) {
       const defaultAspect = 8.5 / 11;
       const pageHeight = Math.min(containerHeight, 920);
@@ -148,6 +138,25 @@ export default function FlipbookViewer({ menuData }) {
     return { bookWidth, bookHeight };
   }, []);
 
+  // Helper: add/remove turning class around manual turn actions
+  const doTurn = useCallback((action, ...args) => {
+    const el = flipbookRef.current;
+    if (!el) return;
+    try {
+      el.classList.add('is-turning');
+      if (turnInstance && turnInstance.turn) {
+        turnInstance.turn(action, ...args);
+      }
+    } catch (err) {
+      console.warn('doTurn error', err);
+    } finally {
+      // remove after animation duration + small buffer
+      setTimeout(() => {
+        try { el.classList.remove('is-turning'); } catch (_) {}
+      }, TURN_DURATION_MS + 80);
+    }
+  }, [turnInstance]);
+
   // Initialize turn.js after injecting pages and ensuring images loaded
   useEffect(() => {
     let mounted = true;
@@ -155,83 +164,80 @@ export default function FlipbookViewer({ menuData }) {
 
     async function init() {
       if (!menuData || !Array.isArray(menuData.imageUrls) || menuData.imageUrls.length === 0) {
-        // Nothing to show
         return;
       }
 
-      // 1) Inject pages into the container (plain DOM children — avoids React/turn conflicts)
+      // 1) Inject pages
       injectPages(menuData.imageUrls);
 
-      // 2) Wait for those page images to load so we can measure natural sizes
-      try {
-        await waitForImagesInContainer(4000);
-      } catch (_) { /* timeout — proceed anyway */ }
+      // 2) Wait images
+      try { await waitForImagesInContainer(4000); } catch (_) {}
 
-      // 3) Compute an adaptive size and apply as initial wrapper size so turn doesn't create large gaps
+      // 3) Compute initial size and apply wrapper style
       const size = computeAdaptiveSize();
       try {
         if (size && flipbookRef.current) {
           flipbookRef.current.style.width = `${size.bookWidth}px`;
           flipbookRef.current.style.height = `${size.bookHeight}px`;
         }
-      } catch (err) { /* ignore */ }
+      } catch (err) {}
 
-      // 4) Load jQuery and turn.js sequentially
+      // 4) Load jQuery + turn.min.js
       try {
         await loadScript('https://code.jquery.com/jquery-3.6.0.min.js', () => !!window.jQuery);
         await loadScript('/turn.min.js', () => !!(window.jQuery && window.jQuery.fn && window.jQuery.fn.turn));
-        // allow plugin to attach
         await new Promise(r => setTimeout(r, 20));
       } catch (err) {
-        console.warn('Script load failed:', err);
+        console.warn('Scripts failed to load', err);
       }
 
       if (!mounted) return;
       const $ = window.jQuery;
       if (!$ || !$.fn || !$.fn.turn || !flipbookRef.current) {
-        // plugin not present, leave static pages
         return;
       }
 
       try {
         $book = $(flipbookRef.current);
-
-        // Destroy previous instance safely
         try { if ($book.turn('is')) $book.turn('destroy'); } catch (_) {}
 
-        // Initialize with the computed size (avoid calling turn('addPage') etc. — we let it use the children)
-        const opts = {
+        $book.turn({
           width: (size && size.bookWidth) || 1,
           height: (size && size.bookHeight) || 1,
           display: 'double',
           acceleration: true,
           gradients: !$.isTouch,
-          elevation: 50,
+          elevation: 60,
           duration: TURN_DURATION_MS,
           autoCenter: true,
           when: {
+            turning: function (e, page, view) {
+              // try adding turning class (plugin-invoked flip)
+              try { flipbookRef.current && flipbookRef.current.classList.add('is-turning'); } catch (_) {}
+            },
             turned: function (e, page) {
               try {
                 if (Number.isFinite(page)) setCurrentPage(page);
-              } catch (err) { /* ignore */ }
-              // recompute sizes after turn completes (small delay)
+              } catch (_) {}
+              // recompute sizes after turn completes
               setTimeout(() => {
                 try {
                   const s2 = computeAdaptiveSize();
                   if (s2 && $book && $book.turn) $book.turn('size', s2.bookWidth, s2.bookHeight);
-                } catch (_) { /* ignore */ }
-              }, 40);
+                } catch (_) {}
+                try { flipbookRef.current && flipbookRef.current.classList.remove('is-turning'); } catch (_) {}
+              }, 40 + TURN_DURATION_MS);
             },
             missing: function (e, pages) {
-              console.info('turn.js requested missing pages', pages);
+              console.info('turn.js missing pages', pages);
             }
           }
-        };
+        });
 
-        // Initialize turn with the prepared children
-        $book.turn(opts);
+        // make sure shadow classes are applied
+        if (flipbookRef.current) flipbookRef.current.classList.remove('is-turning');
 
-        // Apply final size again to be safe
+        // apply final safe size
         if (size) {
           try { $book.turn('size', size.bookWidth, size.bookHeight); } catch (_) {}
         }
@@ -253,7 +259,7 @@ export default function FlipbookViewer({ menuData }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuData]);
 
-  // Resize handler: recompute adaptively when the window / container changes
+  // Resize recompute
   useEffect(() => {
     const onResize = () => {
       const s = computeAdaptiveSize();
@@ -272,17 +278,14 @@ export default function FlipbookViewer({ menuData }) {
   // Keyboard nav
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'ArrowLeft') {
-        try { if (turnInstance && turnInstance.turn) turnInstance.turn('previous'); } catch (_) {}
-      } else if (e.key === 'ArrowRight') {
-        try { if (turnInstance && turnInstance.turn) turnInstance.turn('next'); } catch (_) {}
-      }
+      if (e.key === 'ArrowLeft') doTurn('previous');
+      else if (e.key === 'ArrowRight') doTurn('next');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [turnInstance]);
+  }, [doTurn]);
 
-  // Pointer tap/swipe simple handlers (leave dragging/peel to turn.js)
+  // Pointer handlers (use doTurn wrapper)
   useEffect(() => {
     const el = flipbookRef.current;
     if (!el) return;
@@ -294,12 +297,10 @@ export default function FlipbookViewer({ menuData }) {
       if (!s.active) return;
       const dx = e.clientX - s.sx; const adx = Math.abs(dx); const dy = Math.abs(e.clientY - s.sy);
       if (adx > Math.max(SWIPE, dy)) {
-        if (dx < 0) try { if (turnInstance && turnInstance.turn) turnInstance.turn('next'); } catch(_) {}
-        else try { if (turnInstance && turnInstance.turn) turnInstance.turn('previous'); } catch(_) {}
+        if (dx < 0) doTurn('next'); else doTurn('previous');
       } else if (!s.moved) {
         const rect = el.getBoundingClientRect(); const relX = (e.clientX - rect.left) / rect.width;
-        if (relX < 0.5) try { if (turnInstance && turnInstance.turn) turnInstance.turn('previous'); } catch(_) {}
-        else try { if (turnInstance && turnInstance.turn) turnInstance.turn('next'); } catch(_) {}
+        if (relX < 0.5) doTurn('previous'); else doTurn('next');
       }
       s.active = false; s.moved = false; try { (e.target || el).releasePointerCapture && (e.target || el).releasePointerCapture(e.pointerId); } catch(_) {}
     }
@@ -313,7 +314,7 @@ export default function FlipbookViewer({ menuData }) {
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
     };
-  }, [turnInstance]);
+  }, [doTurn]);
 
   // Page counter display
   let displayText = '';
@@ -326,22 +327,27 @@ export default function FlipbookViewer({ menuData }) {
   } catch (_) { }
   if (!displayText) displayText = `${Math.max(1, currentPage)} / ${totalPages}`;
 
+  // Controls now live in the top bar so they remain visible
+  const goFirst = () => doTurn('page', 1);
+  const goPrev = () => doTurn('previous');
+  const goNext = () => doTurn('next');
+  const goLast = () => doTurn('page', totalPages);
+
   return (
     <div className="viewer-layout">
       <WavyBackground />
-      <div className="top-bar" />
-      <div className="safe-area-box" ref={safeAreaRef}>
-        <div ref={flipbookRef} className="menu-book" />
+      <div className="top-bar">
+        <div className="controls-center top-controls">
+          <button className="ctrl" onClick={goFirst} title="First">⏮</button>
+          <button className="ctrl" onClick={goPrev} title="Prev">◀</button>
+          <div className="page-counter"><span>{displayText}</span></div>
+          <button className="ctrl" onClick={goNext} title="Next">▶</button>
+          <button className="ctrl" onClick={goLast} title="Last">⏭</button>
+        </div>
       </div>
 
-      <div className="overlay-controls">
-        <div className="controls-center top-controls">
-          <button className="ctrl" onClick={() => { try { if (turnInstance && turnInstance.turn) turnInstance.turn('page', 1); } catch (_) {} }}>⏮</button>
-          <button className="ctrl" onClick={() => { try { if (turnInstance && turnInstance.turn) turnInstance.turn('previous'); } catch (_) {} }}>◀</button>
-          <div className="page-counter"><span>{displayText}</span></div>
-          <button className="ctrl" onClick={() => { try { if (turnInstance && turnInstance.turn) turnInstance.turn('next'); } catch (_) {} }}>▶</button>
-          <button className="ctrl" onClick={() => { try { if (turnInstance && turnInstance.turn) turnInstance.turn('page', totalPages); } catch (_) {} }}>⏭</button>
-        </div>
+      <div className="safe-area-box" ref={safeAreaRef}>
+        <div ref={flipbookRef} className="menu-book" />
       </div>
     </div>
   );

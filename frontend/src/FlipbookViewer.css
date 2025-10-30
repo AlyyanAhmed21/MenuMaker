@@ -1,4 +1,4 @@
-/* --- FlipbookViewer - make book wrapper completely transparent --- */
+/* --- FlipbookViewer - updated for lens, hi-res swap, reset, swipe sides --- */
 
 .viewer-layout {
     display: grid;
@@ -11,12 +11,21 @@
     color: #fff;
 }
 
+/* Prevent selection inside viewer */
+.viewer-layout, .viewer-layout * {
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
 .top-bar {
     grid-row: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 60;
+    z-index: 160;
     pointer-events: auto;
 }
 
@@ -31,7 +40,7 @@
     box-sizing: border-box;
 }
 
-/* Make the book container fully transparent and remove any border/shadow */
+/* Book wrapper */
 .menu-book {
   z-index: 10;
   position: relative;
@@ -39,20 +48,15 @@
   box-shadow: none !important;
   border: none !important;
   outline: none !important;
-  transform-style: preserve-3d;  /* helps 3D feel */
+  transform-style: preserve-3d;
+  transition: transform 260ms ease, box-shadow 260ms ease;
+  touch-action: none;
+  will-change: transform;
 }
+.menu-book.zoomed { cursor: grab; }
 
-/* Ensure turn.js wrappers do not add gutters, borders or shadows */
-.menu-book {
-  z-index: 10;
-  position: relative;
-  background: transparent !important;
-  box-shadow: none !important;
-  border: none !important;
-  outline: none !important;
-  transform-style: preserve-3d;  /* helps 3D feel */
-}
-
+/* Reset page wrappers */
+.menu-book .turn-page,
 /* Default subtle shadow for resting pages */
 .menu-book .page {
   box-shadow: 0 4px 18px rgba(0,0,0,0.16);
@@ -91,16 +95,7 @@
 }
 
 
-/* Page content - transparent background (images remain visible) */
-.page {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    overflow: hidden;
-    background: transparent !important;
-}
-
-/* Page image sizing (images may contain white margins; we can't remove that via CSS) */
+/* Page image */
 .page-image {
     width: 100%;
     height: 100%;
@@ -108,34 +103,10 @@
     pointer-events: none;
     -webkit-user-drag: none;
     display: block;
+    image-rendering: auto;
 }
 
-/* Keep transform origins so pages flip naturally */
-.menu-book .page:nth-child(odd) { transform-origin: left center; }
-.menu-book .page:nth-child(even) { transform-origin: right center; }
-
-/* Navigation arrows — unchanged */
-.nav-arrow {
-    position: absolute;
-    z-index: 20;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 56px;
-    height: 76px;
-    background: linear-gradient(90deg, rgba(0,0,0,0.0), rgba(0,0,0,0.12));
-    border: none;
-    cursor: pointer;
-    opacity: 0.8;
-    transition: opacity 0.12s, transform 0.12s;
-    display: block;
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: 28px 28px;
-}
-.nav-arrow.left { left: calc(50% - 560px); }
-.nav-arrow.right { right: calc(50% - 560px); }
-.nav-arrow:hover { opacity: 1; transform: translateY(-50%) scale(1.05); }
-
+/* Controls (top) */
 .controls-center.top-controls {
   display: flex;
   align-items: center;
@@ -144,9 +115,8 @@
   padding: 6px 12px;
   border-radius: 6px;
   backdrop-filter: blur(6px);
-  z-index: 100;
+  z-index: 200;
 }
-
 .ctrl {
     background: transparent;
     border: none;
@@ -155,9 +125,18 @@
     padding: 6px 8px;
     cursor: pointer;
     transition: transform 0.12s ease, color 0.12s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 .ctrl:hover { color: white; transform: scale(1.05); }
+.ctrl.active { background: rgba(255,255,255,0.03); border-radius: 6px; }
 
+/* zoom/reset buttons */
+.zoom-btn { padding: 8px; width: 44px; height: 44px; border-radius: 8px; }
+.undo-btn { padding: 6px; width: 40px; height: 40px; border-radius: 8px; }
+
+/* page counter */
 .page-counter {
     display: flex;
     gap: 10px;
@@ -170,25 +149,58 @@
     justify-content: center;
     font-weight: 600;
 }
-.page-jump {
-    width: 72px;
-    background: rgba(0,0,0,0.12);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.06);
-    padding: 6px;
-    border-radius: 4px;
+
+/* Large overlay side arrows */
+.side-arrow {
+  position: absolute;
+  top: 46%;
+  transform: translateY(-50%);
+  width: 78px;
+  height: 126px;
+  background: rgba(0,0,0,0.18);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 150;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: background 160ms, transform 160ms;
+  user-select: none;
 }
-/* ... keep the rest of your existing styles ... */
+.side-arrow:hover { background: rgba(0,0,0,0.28); transform: translateY(-50%) scale(1.03); }
+.side-arrow .arrow { font-size: 36px; line-height: 1; pointer-events: none; }
+.left-arrow { left: 16px; }
+.right-arrow { right: 16px; }
 
-/* Ensure the book wrapper is transparent (you already had these) */
+/* Magnifier lens overlay */
+.overlay-lens {
+  position: fixed; /* fixed so it follows cursor reliably */
+  pointer-events: none;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.12);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: cover;
+  overflow: hidden;
+  z-index: 9999; /* above everything in the viewer */
+  display: none;
+}
 
-
-/* Controls (keep as previously) */
-
+/* zoomed state */
+.menu-book.zoomed {
+  transition: transform 160ms ease;
+  z-index: 40;
+  will-change: transform;
+}
 
 /* responsive */
 @media (max-width: 900px) {
-    .nav-arrow.left { left: 6px; width: 44px; height: 66px; }
-    .nav-arrow.right { right: 6px; width: 44px; height: 66px; }
-    .page-jump { width: 60px; }
+  .side-arrow { width: 54px; height: 96px; }
+  .side-arrow .arrow { font-size: 28px; }
+  .zoom-btn { width: 40px; height: 40px; }
 }

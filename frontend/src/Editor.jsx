@@ -3,7 +3,7 @@ import axios from 'axios';
 import WavyBackground from './WavyBackground';
 import './Editor.css';
 
-const API_URL = 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 function Editor() {
     const [selectedFiles, setSelectedFiles] = useState([]);

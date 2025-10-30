@@ -1,51 +1,51 @@
+require('dotenv').config(); // Load environment variables from .env file
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs/promises');
+const AWS = require('aws-sdk'); // Import AWS SDK
 
-// pdfjs/canvas imports unchanged...
+// Your proven pdfjs/canvas imports remain unchanged
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const { createCanvas } = require('canvas');
 pdfjsLib.GlobalWorkerOptions.workerSrc = `pdfjs-dist/legacy/build/pdf.worker.js`;
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001; // Important for Render deployment
+
+// --- ✅ AWS S3 Configuration ---
+const s3 = new AWS.S3({
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    region: process.env.AWS_BUCKET_REGION,
+});
 
 app.use(cors());
+// We no longer need to serve a local /public folder for user assets
+// app.use('/public', express.static(...));
 
-// IMPORTANT: add setHeaders here so images served from /public include CORS header
-app.use('/public', express.static(path.join(__dirname, 'public'), {
-  setHeaders: (res, filePath) => {
-    // Allow the frontend at any origin to request these images for canvas drawing.
-    // In production you can restrict this to your frontend origin.
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-}));
+// --- ✅ Multer now holds files in memory ---
+const upload = multer({ storage: multer.memoryStorage() });
 
-// --- File Upload Setup ---
-const storage = multer.diskStorage({
-    destination: async (req, file, cb) => {
-        const uploadPath = path.join(__dirname, 'uploads');
-        await fs.mkdir(uploadPath, { recursive: true });
-        cb(null, uploadPath);
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`);
-    }
-});
-const upload = multer({ storage });
+// --- ✅ Helper function to upload a file buffer to S3 ---
+const uploadToS3 = (buffer, filename, mimetype) => {
+    const uniqueFilename = `${Date.now()}-${filename}`;
+    const params = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: `output/${uniqueFilename}`, // File name in S3, inside an 'output' folder
+        Body: buffer,
+        ContentType: mimetype,
+        ACL: 'public-read' // Make the file publicly accessible
+    };
+    return s3.upload(params).promise();
+};
 
-
-// --- PDF to Image Conversion ---
-async function convertPdfToImages(pdfPath, outputDir) {
-    await fs.mkdir(outputDir, { recursive: true });
-
-    const data = new Uint8Array(await fs.readFile(pdfPath));
+// --- ✅ PDF to Image Conversion - Now returns an array of Buffers ---
+async function convertPdfToImages(pdfBuffer) {
+    const data = new Uint8Array(pdfBuffer);
     const loadingTask = pdfjsLib.getDocument(data);
     const pdf = await loadingTask.promise;
-
-    const imageUrls = [];
+    const imageBuffers = []; // We will store raw image data (buffers)
 
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
@@ -61,21 +61,15 @@ async function convertPdfToImages(pdfPath, outputDir) {
         };
         
         await page.render(renderContext).promise;
-
-        const outputPath = path.join(outputDir, `page_${i}.png`);
-        const buffer = canvas.toBuffer('image/png');
-        await fs.writeFile(outputPath, buffer);
         
-        const relativePath = path.relative(path.join(__dirname, 'public'), outputPath);
-        imageUrls.push(`/public/${relativePath.replace(/\\/g, '/')}`);
+        // Push the image data buffer directly into our array
+        imageBuffers.push(canvas.toBuffer('image/png'));
     }
-
-    return imageUrls;
+    return imageBuffers;
 }
 
 
-// --- API Endpoint ---
-// Change from upload.single to upload.array to accept multiple files
+// --- ✅ API Endpoint - Updated for S3 ---
 app.post('/api/upload', upload.array('files'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).send('No files uploaded.');
@@ -88,33 +82,33 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
         // Check if the upload is a single PDF
         if (uploadedFiles.length === 1 && uploadedFiles[0].mimetype === 'application/pdf') {
             const pdfFile = uploadedFiles[0];
-            const pdfFilePath = pdfFile.path;
-            const outputDir = path.join(__dirname, 'public', 'output', `${Date.now()}`);
+            console.log(`Converting PDF: ${pdfFile.originalname}...`);
             
-            console.log(`Converting PDF: ${pdfFilePath}...`);
-            imageUrls = await convertPdfToImages(pdfFilePath, outputDir);
-            await fs.unlink(pdfFilePath); // Clean up the uploaded PDF
+            // 1. Convert PDF to an array of image buffers
+            const imageBuffers = await convertPdfToImages(pdfFile.buffer);
+
+            // 2. Upload each buffer to S3
+            for (let i = 0; i < imageBuffers.length; i++) {
+                const buffer = imageBuffers[i];
+                const filename = `page_${i + 1}.png`;
+                const uploadResult = await uploadToS3(buffer, filename, 'image/png');
+                imageUrls.push(uploadResult.Location); // The public URL from S3
+            }
 
         } else { // Otherwise, treat them as images
             console.log(`Processing ${uploadedFiles.length} image(s)...`);
             for (const imageFile of uploadedFiles) {
-                // For images, we just need to move them to the public directory
-                const outputDir = path.join(__dirname, 'public', 'output', 'images');
-                await fs.mkdir(outputDir, { recursive: true });
-                
-                const finalPath = path.join(outputDir, imageFile.filename);
-                await fs.rename(imageFile.path, finalPath); // Move from /uploads to /public
-
-                const relativePath = path.relative(path.join(__dirname, 'public'), finalPath);
-                imageUrls.push(`/public/${relativePath.replace(/\\/g, '/')}`);
+                // Upload each image buffer directly to S3
+                const uploadResult = await uploadToS3(imageFile.buffer, imageFile.originalname, imageFile.mimetype);
+                imageUrls.push(uploadResult.Location);
             }
         }
 
-        console.log('✅ Processing successful. Image URLs:', imageUrls);
+        console.log('✅ Upload to S3 successful. Image URLs:', imageUrls);
         res.json({ imageUrls });
 
     } catch (error) {
-        console.error('Error during file processing:', error);
+        console.error('Error during S3 upload/processing:', error);
         res.status(500).send('Failed to process files.');
     }
 });
@@ -122,9 +116,5 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
 
 // --- Server Start ---
 app.listen(port, () => {
-    console.log(`Backend server listening at http://localhost:${port}`);
+    console.log(`Backend server listening on port ${port}`);
 });
-
-
-
-

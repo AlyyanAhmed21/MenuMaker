@@ -137,7 +137,7 @@ function ScrollableViewer({ imageUrls }) {
             contentClass="zoom-content"
           >
             <img
-              src={`${API_URL}${imageUrls[currentPage]}`}
+              src={imageUrls[currentPage]}
               alt={`Page ${currentPage + 1}`}
               onLoad={handleImageLoad}
               draggable={false}

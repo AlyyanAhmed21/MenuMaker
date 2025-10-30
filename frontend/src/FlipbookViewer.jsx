@@ -82,7 +82,7 @@ export default function FlipbookViewer({ menuData }) {
   const injectPages = useCallback((urls) => {
     if (!flipbookRef.current) return;
     const nodes = (urls || []).map((u, i) => {
-      const src = `${API_URL}${u}`;
+      const src = u;
       return `<div class="page" data-page="${i + 1}">
                 <img class="page-image" src="${src}" draggable="false" data-orig="${src}" />
               </div>`;

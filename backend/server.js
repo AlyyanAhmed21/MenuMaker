@@ -4,19 +4,24 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs/promises');
 
-// --- ✅ The Correct Import for the CJS-Compatible Version (v2.x) ---
+// pdfjs/canvas imports unchanged...
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const { createCanvas } = require('canvas');
-
-// --- ✅ Set the worker source for Node.js environment (Required for v2.x) ---
 pdfjsLib.GlobalWorkerOptions.workerSrc = `pdfjs-dist/legacy/build/pdf.worker.js`;
 
 const app = express();
 const port = 3001;
 
-// --- Middlewares ---
 app.use(cors());
-app.use('/public', express.static(path.join(__dirname, 'public')));
+
+// IMPORTANT: add setHeaders here so images served from /public include CORS header
+app.use('/public', express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    // Allow the frontend at any origin to request these images for canvas drawing.
+    // In production you can restrict this to your frontend origin.
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+}));
 
 // --- File Upload Setup ---
 const storage = multer.diskStorage({
@@ -119,3 +124,7 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
 app.listen(port, () => {
     console.log(`Backend server listening at http://localhost:${port}`);
 });
+
+
+
+

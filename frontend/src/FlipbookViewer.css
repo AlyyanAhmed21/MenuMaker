@@ -1,107 +1,170 @@
-/* FlipbookViewer.css - new implementation tuned to match the target look:
-   - cover centered and large
-   - two-page spreads fill the vertical space (top -> slightly above bottom controls)
-   - no forced resets; sizing uses runtime measurements
-*/
-
+/* --- Professional layout with top controls --- */
 .viewer-layout {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  width: 100vw;
-  background: transparent;
-  overflow: hidden;
-  position: relative;
+    display: grid;
+    /* top controls row, main safe area, small bottom spacer */
+    grid-template-rows: 8vh 1fr 3vh;
+    height: 100vh;
+    width: 100vw;
+    background-color: transparent;
+    overflow: hidden;
+    position: relative;
+    color: #fff;
 }
 
-/* top and bottom bars - these are measured to compute available space */
-.top-bar, .bottom-bar {
-  flex-shrink: 0;
-  background-color: #0f0f0f;
-  width: 100%;
-  z-index: 1000;
-  box-shadow: 0 0 8px rgba(0,0,0,0.45);
+.top-bar {
+    grid-row: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+    pointer-events: auto;
 }
-.top-bar { height: 48px; }   /* thin header like your example */
-.bottom-bar { height: 72px; } /* control area */
 
-/* safe area where the book sits */
+/* Keep WavyBackground behind everything */
 .safe-area-box {
-  flex-grow: 1;
-  display: flex;
-  justify-content: center; /* center horizontally */
-  align-items: center;
-  overflow: hidden;
-  position: relative;
-  z-index: 1;
-  padding: 0 10px;
+    grid-row: 2;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 6px 20px 20px 20px;
+    box-sizing: border-box;
 }
 
-/* wrapper that centers cover or spread and allows subtle transitions */
-.book-wrap {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  pointer-events: none; /* let the flipbook itself handle pointer events */
-}
-.book-wrap > .menu-book { pointer-events: auto; }
-
-/* the flipbook itself */
+/* Book wrapper - NO heavy drop shadow (transparent surroundings) */
 .menu-book {
-  box-shadow: 0 22px 46px rgba(0,0,0,0.5);
-  border-radius: 6px;
-  background: transparent;
-  overflow: visible;
-  transition: width 220ms ease, height 220ms ease;
+    z-index: 10;
+    position: relative;
+    /* remove outer shadow so surrounding area is transparent */
+    box-shadow: none;
+    border-radius: 2px;
+    background: transparent;
+    transform-origin: center center;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none; /* allow pointer events to be handled for both mouse and touch */
+    overflow: visible;
 }
 
-/* ensure internal canvas doesn't clip page-turn effect */
-.menu-book .react-pageflip {
-  overflow: visible !important;
+/* Specific turn.js page wrapper tweak - remove internal margins and shadows so pages meet at spine */
+.menu-book .turn-page,
+.menu-book .page {
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
 }
 
-/* page element */
+/* Each page content */
 .page {
-  background: #fff;
-  border-radius: 4px;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    background: transparent;
 }
 
-/* keep image readable: occupy full page height and preserve aspect ratio */
+/* page image full but keep contained so nothing gets cropped */
 .page-image {
-  height: 100%;
-  width: auto;
-  object-fit: contain;
-  display: block;
-  user-select: none;
-  pointer-events: none;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    -webkit-user-drag: none;
 }
 
-/* bottom controls */
-.bottom-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 22px;
-  color: white;
+/* remove any "gutter" styling turn.js might add; attempt to close spine gap */
+.menu-book .page:nth-child(odd) { /* left pages */
+    transform-origin: left center;
 }
-.controls-left, .controls-right { flex: 1; display: flex; align-items: center; gap: 12px; }
-.controls-right { justify-content: flex-end; }
-.controls-center { flex: 2; display: flex; justify-content: center; align-items: center; gap: 16px; }
-.bottom-bar button { background: none; border: none; color: #ccc; font-size: 1.2em; cursor: pointer; padding: 8px; transition: color 0.15s, transform 0.15s; }
-.bottom-bar button:hover { color: white; transform: scale(1.05); }
-.page-counter { font-size: 1.05em; font-weight: 600; min-width: 80px; text-align: center; background: rgba(255,255,255,0.04); padding: 6px 10px; border-radius: 6px; }
+.menu-book .page:nth-child(even) { /* right pages */
+    transform-origin: right center;
+}
 
-/* responsive tweaks */
-@media (max-width: 1100px) {
-  .top-bar { height: 40px; }
-  .bottom-bar { height: 64px; }
+/* overlay left/right navigation arrows */
+.nav-arrow {
+    position: absolute;
+    z-index: 20;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 56px;
+    height: 76px;
+    background: linear-gradient(90deg, rgba(0,0,0,0.0), rgba(0,0,0,0.12));
+    border: none;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.12s, transform 0.12s;
+    display: block;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 28px 28px;
 }
-@media (max-width: 700px) {
-  .page-image { height: 88%; }
-  .page-counter { min-width: 60px; font-size: 0.95em; }
+.nav-arrow.left {
+    left: calc(50% - 560px);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z'/%3E%3C/svg%3E");
+}
+.nav-arrow.right {
+    right: calc(50% - 560px);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z'/%3E%3C/svg%3E");
+}
+.nav-arrow:hover { opacity: 1; transform: translateY(-50%) scale(1.05); }
+
+/* Top controls (moved from bottom to top) */
+.controls-center.top-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(12,12,12,0.6);
+    padding: 6px 12px;
+    border-radius: 6px;
+    backdrop-filter: blur(6px);
+}
+
+/* control button styles */
+.ctrl {
+    background: transparent;
+    border: none;
+    color: #ddd;
+    font-size: 1.05rem;
+    padding: 6px 8px;
+    cursor: pointer;
+    transition: transform 0.12s ease, color 0.12s ease;
+}
+.ctrl:hover { color: white; transform: scale(1.05); }
+
+/* Page counter & jump input */
+.page-counter {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    color: #fff;
+    background: rgba(255,255,255,0.03);
+    padding: 6px 10px;
+    border-radius: 6px;
+    min-width: 160px;
+    justify-content: center;
+    font-weight: 600;
+}
+.page-jump {
+    width: 72px;
+    background: rgba(0,0,0,0.12);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.06);
+    padding: 6px;
+    border-radius: 4px;
+}
+
+/* small responsive adjustments */
+@media (max-width: 900px) {
+    .nav-arrow.left { left: 6px; width: 44px; height: 66px; }
+    .nav-arrow.right { right: 6px; width: 44px; height: 66px; }
+    .page-jump { width: 60px; }
+}
+
+/* placeholder when no pages */
+.empty-message {
+    color: #eee;
+    font-size: 1.1rem;
+    z-index: 10;
 }

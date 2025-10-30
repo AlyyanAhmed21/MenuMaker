@@ -34,8 +34,7 @@ const uploadToS3 = (buffer, filename, mimetype) => {
         Bucket: process.env.AWS_BUCKET_NAME,
         Key: `output/${uniqueFilename}`, // File name in S3, inside an 'output' folder
         Body: buffer,
-        ContentType: mimetype,
-        ACL: 'public-read' // Make the file publicly accessible
+        ContentType: mimetype
     };
     return s3.upload(params).promise();
 };
